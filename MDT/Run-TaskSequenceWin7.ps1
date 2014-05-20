@@ -2,7 +2,7 @@
 # Script Name: Run-TaskSequenceWin7.ps1
 # Created: May 14, 2014
 # Revised: N/A
-# Author: t0rqued
+# Author: Jim Schneidereit
 # Company: redacted
 # Email: redacted
 #=============================================

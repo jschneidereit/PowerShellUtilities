@@ -79,24 +79,27 @@ Function Clean-SpecifiedLocation {
 
 <#   Creates a virtual switch for the VM to use to connect   #>
 Function New-VirtualSwitch {
-    If ( Get-NetAdapter | ? {($_.Name -like "vEthernet ($($VM.Switch))")} ) {
-        $Adapters = Get-NetAdapter | ? {($_.Name -like 'Ethernet 2') -and ($_.Status -eq 'Up')}
-        #$AvailableAdapters = $Adapters.GetEnumerator() | % { $_.name }
-        #$Adapter = $AvailableAdapters[0] 
-        $Adapter = $Adapters[0].Name
-        try {
-            New-VMSwitch -Name $VM.Switch -NetAdapterName $Adapter -AllowManagementOS $true -ErrorAction Stop -ErrorVariable $temperror
-            Write-Log "A new virtual switch $($VM.Switch) has been generated"
-        } catch [Microsoft.HyperV.PowerShell.VirtualizationOperationFailedException] {  
-            if (Get-NetAdapter | % {$_.Name -match $VM.Switch}) { 
-                Write-Log "A virtual switch with the name $($VM.Switch) had already been generated, continuing on"
-            } else {
-                Write-Log "Something horrible happened - Couldn't add the virtual switch, the rest of this script will not complete successfully and will exit"
-            }
-        } catch {
-            Write-Log "Something horrible happened - Couldn't add the virtual switch, the rest of this script will not complete successfully and will exit"
-        } 
-    } else { continue }
+    If (!(Get-NetAdapter | ? {($_.Name -like "vEthernet ($($VM.Switch))")})) {
+        $Adapters = Get-NetAdapter -Physical | ? {($_.Status -eq 'Up')}
+        if ($Adapters.count) {
+            $AvailableAdapters = $Adapters.GetEnumerator() | % { $_.name }
+            $Adapter = $AvailableAdapters[0] 
+        } else {
+            $Adapter = $Adapters[0].Name
+        }
+    }
+    try {
+        New-VMSwitch -Name $VM.Switch -NetAdapterName $Adapter -AllowManagementOS $true -ErrorAction Stop -ErrorVariable $temperror
+        Write-Log "A new virtual switch $($VM.Switch) has been generated"
+    } catch [Microsoft.HyperV.PowerShell.VirtualizationOperationFailedException] {  
+        if (Get-NetAdapter | % {$_.Name -match $VM.Switch}) { 
+            Write-Log "A virtual switch with the name $($VM.Switch) had already been generated, continuing on"
+        } else {
+           Write-Log "Something horrible happened - Couldn't add the virtual switch, the rest of this script will not complete successfully and will exit"
+        }
+    } catch {
+        Write-Log "Something horrible happened - Couldn't add the virtual switch, the rest of this script will not complete successfully and will exit"
+    }
 }
 
 <#   Removes the virtual switch created for the VM   #>

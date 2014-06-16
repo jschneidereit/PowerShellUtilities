@@ -222,9 +222,9 @@ Write-Host "gonna do virtual switch"
 New-VirtualSwitch
 Write-Host "gonna do virtual machine"
 New-VirtualMachine
-Write-Host "gonna copy captured image"
-Copy-CapturedImage
 Write-Host "gonna wait..."
 Wait-VirtualMachine
+Write-Host "gonna copy captured image"
+Copy-CapturedImage
 Remove-VirtualMachine
 #Complete-Log 

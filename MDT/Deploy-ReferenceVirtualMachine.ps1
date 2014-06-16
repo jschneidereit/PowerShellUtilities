@@ -61,7 +61,7 @@ $MDTAdministrators = @{
 #endregion
 
 $ScriptVersion = "1"
-$VHDPath = "$($VM.Path)\$($VM.Name)\$($VM.Name).vhdx"
+$VHDPath = "$($VM.Path)\$($VM.Name).vhdx"
 $LogPath = "$DeploymentShareDirectory\Logs\"
 
 
@@ -154,27 +154,33 @@ Function Wait-VirtualMachine {
 Function Remove-VirtualMachine {
     Write-Log "Removing the virtual machine $($VM.Name)"
     Remove-VM -Name $VM.Name -Force
-    Remove-Item -Path "$($VM.Path)\$($VM.Name)" -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -Path "$($VM.Path)\$($VM.Name).vhdx" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path "$($VM.Path)\$($VM.Name)" -Recurse -Force
+    Remove-Item -Path "$($VM.Path)\$($VM.Name).vhdx" -Recurse -Force 
     #Remove-VirtualSwitch
 }
 
 <#   Copies the captured image from the VM task sequence to the Target Deployment Share   #>
 Function Copy-CapturedImage {
-    Write-Log "Beginning the copy of captured image"
-    Write-Log "This will clobber whatever image was already there..."
+    Write-Host "Beginning the copy of captured image"
+    Write-Host "This will clobber whatever image was already there..."
     
     $Capture = (Get-ChildItem ($RDS.Path + "\Captures")).FullName
+    $Destination =  ($TDS.Path + "\Operating Systems\" + $TDS.OSFileName + "\" + $TDS.OSFileName)
+
+    If (Test-Path -Path ($Destination  + ".WIM")) {
+        If (Test-Path -Path ($Destination + ".old")) {Remove-Item ($Destination + ".old") -Verbose}
+        Rename-Item ($Destination + ".WIM") ($TDS.OSFileName + ".old") -Force -Verbose 
+    }
 
     If (Test-Path -Path $Capture) {
-        Rename-Item -Path ($TDS.Path + "\Operating Systems\" + $TDS.OSFileName + "\$($TDS.OSFileName).wim") -NewName ($TDS.OSFileName + ".old") -Force -Verbose -ErrorAction SilentlyContinue
-        Copy-Item -Path $Capture -Destination ($TDS.Path + "\Operating Systems\" + $TDS.OSFileName) -Force -Verbose -ErrorAction SilentlyContinue
+        Copy-Item -Path $Capture -Destination ($TDS.Path + "\Operating Systems\" + $TDS.OSFileName) -Force -Verbose
         If ($?) { 
-            Write-Log "Copy successful!" 
-        } else { 
+            Write-Log "Copy successful!"
+            Remove-Item $Capture 
+        } Else { 
             Write-Log "The copy of the image from the RDS to the TDS was not successful"
         }
-    } else {
+    } Else {
         Write-Log "The captured image was not where it should have been"
     }
 }
@@ -207,10 +213,15 @@ Function Complete-Log {
 
 #$LogFile = Build-Log
 #Initialize-Log
+Write-Host "hello good sir"
 Clean-SpecifiedLocation ($RDS.Path + "\Captures")
+Write-Host "gonna do virtual switch"
 New-VirtualSwitch
+Write-Host "gonna do virtual machine"
 New-VirtualMachine
+Write-Host "gonna copy captured image"
 Copy-CapturedImage
+Write-Host "gonna wait..."
 Wait-VirtualMachine
 Remove-VirtualMachine
 #Complete-Log 

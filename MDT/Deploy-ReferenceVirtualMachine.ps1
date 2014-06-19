@@ -46,7 +46,7 @@ $VM = @{
     RAM = 2048MB
     VHDSize = 128GB
     <#   This switch will be created if it doesn't exist   #>
-    Switch = "ExternalNetwork"
+    Switch = "Virtual Switch"
     <#   This is the iso that the RDS generates when you "update deployment share"   #>
     ISO = "$($RDS.Path)\Boot\LiteTouchPE_x64.iso"
 }

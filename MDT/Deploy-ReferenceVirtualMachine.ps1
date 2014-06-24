@@ -216,6 +216,7 @@ Function Complete-Log {
 
 #$LogFile = Build-Log
 #Initialize-Log
+if (!(Get-Module -Name Hyper-V)) {Import-Module -Name Hyper-V}
 Write-Host "hello good sir"
 Clean-SpecifiedLocation ($RDS.Path + "\Captures")
 Write-Host "gonna do virtual switch"

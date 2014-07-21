@@ -22,21 +22,58 @@ $Credentials = New-Object -TypeName System.Management.Automation.PSCredential -A
 $FileName = "ITUtilities"
 #endregion
 
-Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name DefaultDomainName -Value "" -Force
-Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name DefaultUserName -Value "" -Force
-Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name DefaultDomainName -Value "" -Force
-Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name AutoAdminLogon -Value "0" -Force
-Set-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name ForceAutoLogon -Value "0" -Force
+
+function Verify-NetworkConnection ($Server) {
+    $TimeOutCount = 15
+    $SecondsSlept = 0
+    $Interval = 1
+
+    Write-Host "Waiting for server connection..."
+    While ( $SecondsSlept -le $TimeOutCount ) {
+        Write-Host "$SecondsSlept . . ."
+        if(! (Test-Connection -ComputerName $Server -ErrorAction SilentlyContinue)) {
+            
+            Start-Sleep -Seconds $Interval
+            $SecondsSlept += $Interval
+        } else {
+            Break
+        }
+    }
+    if (! (Test-Connection -ComputerName $Server -ErrorAction SilentlyContinue)) {
+        Write-Warning "Connection to server failed"
+    } else {
+        Write-Host "Connection to server successful"
+    }
+}
+
+Verify-NetworkConnection $wdsServer
 
 if ($PSVersionTable.PSVersion.Major -ge 3) {
     New-PSDrive -Name S -PSProvider FileSystem -Root "\\$wdsServer\$deploymentShare" -Credential $Credentials
 } else {
-    Write-Warning "You don't have PowerShell 3 or greater, sad day...`nGoing to try to connect to the deployment share anyway..."
     New-PSDrive -Name S -PSProvider FileSystem -Root "\\$wdsServer\$deploymentShare"
 }
 
-Remove-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce -Name "RunLiteTouch" -ErrorAction SilentlyContinue
-
 & S:\scripts\litetouch.vbs "/tasksequenceID:$tasksequenceID" "/skiptasksequence:YES" "/rulesfile:\\$wdsServer\$deploymentShare\Control\CustomSettings.ini"
 
+$32Node = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+$64Node = 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Winlogon'
+
+Set-ItemProperty $32Node -Name DefaultDomainName -Value "" -ErrorAction SilentlyContinue -Force
+Set-ItemProperty $32Node -Name DefaultUserName -Value "" -ErrorAction SilentlyContinue -Force
+Set-ItemProperty $32Node -Name DefaultPassword -Value "" -ErrorAction SilentlyContinue -Force
+Set-ItemProperty $32Node -Name DefaultDomainName -Value "" -ErrorAction SilentlyContinue -Force
+Set-ItemProperty $32Node -Name AutoAdminLogon -Value "0" -ErrorAction SilentlyContinue -Force
+Set-ItemProperty $32Node -Name ForceAutoLogon -Value "0" -ErrorAction SilentlyContinue -Force
+
+Set-ItemProperty $64Node -Name DefaultDomainName -Value "" -ErrorAction SilentlyContinue -Force
+Set-ItemProperty $64Node -Name DefaultUserName -Value "" -ErrorAction SilentlyContinue -Force
+Set-ItemProperty $64Node -Name DefaultPassword -Value "" -ErrorAction SilentlyContinue -Force
+Set-ItemProperty $64Node -Name DefaultDomainName -Value "" -ErrorAction SilentlyContinue -Force
+Set-ItemProperty $64Node -Name AutoAdminLogon -Value "0" -ErrorAction SilentlyContinue -Force
+Set-ItemProperty $64Node -Name ForceAutoLogon -Value "0" -ErrorAction SilentlyContinue -Force
+
+#Remove-ItemProperty HKLM:\Software\Microsoft\Windows\CurrentVersion\RunOnce -Name "RunLiteTouch" -ErrorAction SilentlyContinue
 #If (Test-Path C:\$FileName -ErrorAction SilentlyContinue) { Remove-Item -Path C:\$FileName -Recurse -Force } else {continue}
+
+$x = Read-Host "press enter to continue"

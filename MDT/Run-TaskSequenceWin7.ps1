@@ -1,10 +1,9 @@
 ﻿#=============================================
 # Script Name: Run-TaskSequenceWin7.ps1
 # Created: May 2014
-# Revised:
+# Revised: July 25, 2014
 # Author: Jim Schneidereit
-# Company: EisnerAmper LLP
-# Email: jim.schneidereit@eisneramper.com
+# URL: https://github.com/jschneidereit/PowerShellUtilities/tree/master/MDT
 #=============================================
 # Purpose: Kick off a task sequence as defined in the variable section and cleanup some settings from the script that created this one
 # Intended: As part of CUSTOM TASK SEQUENCE
@@ -14,9 +13,9 @@
 $wdsServer = ""
 $deploymentShare = "Images$"
 $tasksequenceID = "CAPTURE"
-$localUser = ""
+$localUser = "" #service account with proper priveleges to add/remove domain and local admin on wds server
 $Domain = ""
-$fullUser = "\$localUser"
+$fullUser = "$domain\$localUser"
 $localPass = '' | ConvertTo-SecureString -AsPlainText -Force
 $Credentials = New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $fullUser, $localPass
 $FileName = "ITUtilities"
@@ -28,34 +27,84 @@ $LogonHash = @{
     DefaultDomainName = [pscustomobject]@{ Name = "DefaultDomainName"; Value = ""; Type = "String" }
     DefaultUserName = [pscustomobject]@{ Name = "DefaultUserName"; Value = ""; Type = "String" }
     DefaultPassword = [pscustomobject]@{ Name = "DefaultPassword"; Value = ""; Type = "String" }
-    AutoLogonCount = [pscustomobject]@{ Name = "AutoLogonCount"; Value = 5; Type = "DWord" }
+    AutoLogonCount = [pscustomobject]@{ Name = "AutoLogonCount"; Value = 10; Type = "DWord" }
 }
 
-$DomainStatus = 0
-$NetworkStatus = 0
+$Global:DomainStatus = 0
+$Global:NetworkStatus = 0
+
+$32Node = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+$64Node = 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Winlogon'
+
+#region Logging
+#use a comma separated string for multiple emails: "email1@domain.com, email2@domain.com"
+$AdminEmails = ""
+$AdminOutEmail = ""
+$SMTPServer = ""
+
+$Global:LogMessage = @()
+$Global:ErrorCount = 0
+
+#not currently in use
+Function New-HardwareLog {
+    $HardwareLog = New-Object PSObject
+    $HardwareLog | Add-Member -type NoteProperty -name SerialNumber -Value ((gwmi win32_bios).SerialNumber)
+    $HardwareLog | Add-Member -type NoteProperty -name Make -Value ((gwmi win32_ComputerSystem).Manufacturer)
+    $HardwareLog | Add-Member -type NoteProperty -name Model -Value ((gwmi win32_ComputerSystem).Model)
+    $HardwareLog | Add-Member -type NoteProperty -name LogDate -Value (Get-Date -Format g)
+    Return $HardwareLog 
+}
+
+Function New-Error ($Value) {
+    Write-Error $Value
+    $Global:ErrorCount += 1
+    Return ("ERROR: $Value`n`n").ToUpper()
+}
+
+Function New-Log ($Value) {
+    Write-Host $Value
+    Return "LOG: $Value`n`n"
+}
+
+Function Complete-Log ($Content, $Errors, $smtp, $to, $from, $subject) {
+    $MessagePriority = "Normal"
+    if ($Errors -ge 1) { $MessagePriority = "High" }
+
+    $outMessage = New-Object System.Net.Mail.MailMessage $from, $to
+    $outMessage.Subject = $subject
+    $outMessage.IsBodyHtml = $false
+    $outMessage.Priority = $MessagePriority
+    $outMessage.Body = $Content
+
+    $smtpObject = New-Object Net.Mail.SmtpClient($smtp)
+    $smtpObject.Send($outMessage)
+    
+}
+
+$Global:LogMessage += (New-Log "Office server - $wdsServer")
+
+#endregion
 
 function Configure-RegistryProperty($Node, $Name, $Value, $Type) { 
-    if (!(Get-ItemProperty $Node -Name $Name -ErrorAction $ErrorAction)) {
-        Write-Host "$Name registry key does not exist, creating it now"
-        New-ItemProperty $Node -Name $Name -Value $Value -Type $Type -ErrorAction $ErrorAction -Force
-        Set-ItemProperty $Node -Name $Name -Value $Value -Type $Type -ErrorAction $ErrorAction -Force
+    if (!(Get-ItemProperty $Node -Name $Name -ErrorAction SilentlyContinue)) {
+        New-ItemProperty $Node -Name $Name -Value $Value -Type $Type -ErrorAction SilentlyContinue -Force
+        Set-ItemProperty $Node -Name $Name -Value $Value -Type $Type -ErrorAction SilentlyContinue -Force
     } else {
-        Write-Host "$Name registry key found, setting it's value now"
-        Set-ItemProperty $Node -Name $Name -Value $Value -Type $Type -ErrorAction $ErrorAction -Force
+        Set-ItemProperty $Node -Name $Name -Value $Value -Type $Type -ErrorAction SilentlyContinue -Force
     }
 }
-
-function Verify-DomainDisconnect ($Domain, $Key) {
     
+function Verify-DomainDisconnect ($Domain, $Key) {
     if ($Key -eq $Domain) {
-        Write-Error "There are still registry keys pointing to $Domain, if you removed from the domain this will successfully work. Otherwise, please remove this workstation from the domain and try again." -Category ResourceExists
-        $x = Read-Host "press enter to continue"
+        $Global:LogMessage += (New-Error "There are still registry keys pointing to $Domain, please remove this workstation from the domain and try again.")
+        #$x = Read-Host "press enter to continue"
     } elseif ((!($Key)) -or ($Key -eq "")) {
-        $DomainStatus = 1
-        Write-Host "The workstation is not on the specified domain $Domain"
+        $Global:LogMessage += (New-Log "The workstation is not on the specified domain $Domain")
+        $Global:DomainStatus = 1
     } else {
-        $DomainStatus = 1
-        Write-Host "The workstation is not on the specified domain $Domain"
+        $Global:LogMessage += (New-Error "Something might be weird with the domain registry settings on this machine, please contact the Administrator")
+        Write-Warning "Going to try running the task sequence any way in case the registry isn't up to date"
+        $Global:DomainStatus = 1
     }
 }
 
@@ -63,7 +112,6 @@ function Verify-NetworkConnection ($Server) {
     $TimeOutCount = 15
     $SecondsSlept = 0
     $Interval = 1
-    
 
     Write-Host "Waiting for server connection..."
     While ( $SecondsSlept -le $TimeOutCount ) {
@@ -77,15 +125,14 @@ function Verify-NetworkConnection ($Server) {
         }
     }
     if (! (Test-Connection -ComputerName $Server -ErrorAction SilentlyContinue)) {
-        Write-Warning "Connection to server failed"
+        $Global:LogMessage += (New-Error  "Connection to server failed")
         Write-Warning "Something is wrong with the network connection"
         Write-Host "You can either fix the issue and start over from the beginning, or fix it and run C:\ITUtilities\Run-TaskSequenceWin7.ps1"
         $x = Read-Host "press enter to continue"
         Exit
     } else {
-        $NetworkStatus = 1
-        Write-Host "Connection to server successful"
-
+        $Global:NetworkStatus = 1
+        $Global:LogMessage += (New-Log  "Connection to server successful")
     }
 }
 
@@ -98,50 +145,44 @@ if ($PSVersionTable.PSVersion.Major -ge 3) {
     New-PSDrive -Name S -PSProvider FileSystem -Root "\\$wdsServer\$deploymentShare"
 }
 
-if ($NetworkStatus -and $DomainStatus) {
+if ($Global:NetworkStatus -and $Global:DomainStatus) {
     & S:\scripts\litetouch.vbs "/tasksequenceID:$tasksequenceID" "/skiptasksequence:YES" "/rulesfile:\\$wdsServer\$deploymentShare\Control\CustomSettings.ini"
+    if ($?) { 
+        $Global:LogMessage += (New-Log "Task Sequence started successfully") 
+        If (Test-Path C:\$FileName -ErrorAction SilentlyContinue) { Remove-Item -Path C:\$FileName -Recurse -Force } else {continue}
+        Remove-ItemProperty -Path 'HKLM:\MNTSOFTWARE\Microsoft\Windows\CurrentVersion\Run' -Name "Run-TaskSequenceWin7"
+    } else { $Global:LogMessage += (New-Error "Task Sequence did not start successfully") }
+
+    
+
+        <# Configure 32 bit auto logon settings found in the mounted registry from the offline computer if available  #>
+    if (Test-Path HKLM:\SOFTWARE\ -ErrorAction SilentlyContinue) {
+        $32Node = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+        $LogonHash.GetEnumerator() | % { Configure-RegistryProperty -Node $32Node -Name $_.Value.Name -Value $_.Value.Value -Type $_.Value.Type }
+    } else { 
+        $Global:LogMessage += (New-Error "HLKM:\SOFTWARE couldn't be found, something is very wrong")
+    }
+
+    <# Configure 64 bit auto logon settings found in the mounted registry from the offline computer if available  #>
+    if (Test-Path HKLM:\SOFTWARE\Wow6432Node\ -ErrorAction SilentlyContinue) {
+        $64Node = 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Winlogon'
+        $LogonHash.GetEnumerator() | % { Configure-RegistryProperty -Node $64Node -Name $_.Value.Name -Value $_.Value.Value -Type $_.Value.Type }
+    } elseif (!(Test-Path HKLM:\SOFTWARE)) { 
+        $Global:LogMessage += (New-Error "HLKM:\SOFTWARE couldn't be found, something is very wrong")
+    } else {
+        $Global:LogMessage += (New-Log "HLKM:\SOFTWARE\Wow6432Node\ couldn't be found, probably a 32 bit machine...")
+    }
+
+} else {
+    $Global:LogMessage += (New-Error "This computer was either on the domain or does not have a connection to the server`n Capture Failed")
+    $x = Read-Host "press enter to continue"
 }
 
-$32Node = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
-$64Node = 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Winlogon'
 
-<# Configure 32 bit auto logon settings found in the mounted registry from the offline computer if available  #>
-if (Test-Path HKLM:\SOFTWARE\ -ErrorAction $ErrorAction) {
-    $32Node = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
-    $LogonHash.GetEnumerator() | % { Configure-RegistryProperty -Node $32Node -Name $_.Value.Name -Value $_.Value.Value -Type $_.Value.Type }
-} else { 
-    Write-Warning "Dafuq HLKM:\SOFTWARE couldn't be found"
-}
 
-<# Configure 64 bit auto logon settings found in the mounted registry from the offline computer if available  #>
-if (Test-Path HKLM:\SOFTWARE\Wow6432Node\ -ErrorAction $ErrorAction) {
-    $64Node = 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows NT\CurrentVersion\Winlogon'
-    $LogonHash.GetEnumerator() | % { Configure-RegistryProperty -Node $64Node -Name $_.Value.Name -Value $_.Value.Value -Type $_.Value.Type }
-} else { 
-    Write-Warning "HLKM:\SOFTWARE\Wow6432Node\ couldn't be found, probably a 32 bit machine..."
-}
-
-Start-Sleep -Seconds 5
-
-If (Test-Path C:\$FileName -ErrorAction SilentlyContinue) { Remove-Item -Path C:\$FileName -Recurse -Force } else {continue}
+Complete-log -Content $Global:LogMessage -Errors $Global:ErrorCount -smtp $SMTPServer -to $AdminEmails -from $AdminOutEmail -subject "Win7 Task Sequence Capture Log - $((gwmi win32_bios).SerialNumber)"
 
 
 
-
-
-
-<#
-Set-ItemProperty $32Node -Name DefaultDomainName -Value "" -ErrorAction SilentlyContinue -Force
-Set-ItemProperty $32Node -Name DefaultUserName -Value "" -ErrorAction SilentlyContinue -Force
-Set-ItemProperty $32Node -Name DefaultPassword -Value "" -ErrorAction SilentlyContinue -Force
-Set-ItemProperty $32Node -Name DefaultDomainName -Value "" -ErrorAction SilentlyContinue -Force
-Set-ItemProperty $32Node -Name AutoAdminLogon -Value "0" -ErrorAction SilentlyContinue -Force
-Set-ItemProperty $32Node -Name ForceAutoLogon -Value "0" -ErrorAction SilentlyContinue -Force
-
-Set-ItemProperty $64Node -Name DefaultDomainName -Value "" -ErrorAction SilentlyContinue -Force
-Set-ItemProperty $64Node -Name DefaultUserName -Value "" -ErrorAction SilentlyContinue -Force
-Set-ItemProperty $64Node -Name DefaultPassword -Value "" -ErrorAction SilentlyContinue -Force
-Set-ItemProperty $64Node -Name DefaultDomainName -Value "" -ErrorAction SilentlyContinue -Force
-Set-ItemProperty $64Node -Name AutoAdminLogon -Value "0" -ErrorAction SilentlyContinue -Force
-Set-ItemProperty $64Node -Name ForceAutoLogon -Value "0" -ErrorAction SilentlyContinue -Force
-#>
+#uncomment to have a pause
+#$x = Read-Host "press enter to continue"

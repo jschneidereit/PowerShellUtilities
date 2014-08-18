@@ -4,7 +4,7 @@
 $TargetDirectory = "c:\blah blah\*"
 
 # Set File Extension
-$TargetExtension = "*.ext"
+$TargetExtension = "*.wim"
 
 # Set Minimum Age of Files
 $Max_Age = "-90"

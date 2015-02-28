@@ -1,7 +1,8 @@
 ﻿param (
     [string]$Server = ".",
-    [string]$DBName = "Name",
-    [string]$Table = "TName"
+    [string]$DBName = "DataBaseName",
+    [string]$Table = "TableName",
+    [int]$Count = 5
 )
 
 $ConnectionString = "Server = $Server; Database = $DBName; Integrated Security = True"
@@ -17,4 +18,16 @@ $Command.CommandText = $Query
 $Command.Connection = $Connection
 $Adapter.SelectCommand = $Command
 $Adapter.Fill($DataSet)
-$DataSet.Tables
+
+$length = $DataSet.Tables[0].Rows.Count
+
+if ($length -gt 10)
+{
+    $DataSet.Tables[0].Rows | Select-Object -First $Count
+}
+else
+{
+    $DataSet.Tables[0].Rows
+}
+        
+    

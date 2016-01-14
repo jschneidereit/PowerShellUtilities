@@ -221,8 +221,8 @@ Function Execute-VMBuild($VM)
 
     Clean-SpecifiedLocation($RDS.Path + "\Captures")
 
-    New-VirtualMachine -vmname $vmname -vmram $vmram -vmswitch $VM.Switch -vmpath $VM.Path -vhdpath $VHDPath -vhdsize $VM.VHDSize -vmiso $VM.ISO
-    Remove-VirtualMachine -vmname $vmname -vmpath $VM.Path
+    New-VirtualMachine -vmname $VM.Name -vmram $VM.RAM -vmswitch $VM.Switch -vmpath $VM.Path -vhdpath $VM.VHDPath -vhdsize $VM.VHDSize -vmiso $VM.ISO
+    Remove-VirtualMachine -vmname $VM.Name -vmpath $VM.Path
 }
 
 
@@ -232,7 +232,4 @@ $DeploymentShareDirectory = "C:\DeploymentShares"
 $VirtualMachineDirectory = "C:\Virtual Machines"
 
 $RDS = New-DeploymentShare -Name "Reference" -Path "$DeploymentShareDirectory\Reference" -OSFileName "GENERIC"
-$RVM = New-VMObject -Path $VirtualMachineDirectory -Name "GENERIC" -RAM 2048MB -VHDSize 64GB -Switch "Virtual Switch" -DeploymentShare $TDS
-
-$TDS = New-DeploymentShare -Name "Target" -Path "$DeploymentShareDirectory\Target" -OSFileName "GENERIC"
-$TVM = New-VMObject -Path $VirtualMachineDirectory -Name "GENERIC" -RAM 2048MB -VHDSize 64GB -Switch "Virtual Switch" -DeploymentShare $TDS
+$RVM = New-VMObject -Path $VirtualMachineDirectory -Name "GENERIC" -RAM 2048MB -VHDSize 64GB -Switch "Virtual Switch" -DeploymentShare $RDS
